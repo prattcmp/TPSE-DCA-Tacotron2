@@ -1,0 +1,3 @@
+recursive-include tacotron *.toml
+recursive-include tacotron *.txt
+include LICENSE
