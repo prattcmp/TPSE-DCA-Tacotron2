@@ -1,14 +1,14 @@
 [preprocess]
-sr = 16000
-hop_length = 200
-win_length = 800
-n_fft = 2048
+sr = 22050
+hop_length = 256
+win_length = 1024
+n_fft = 1024
 n_mels = 80
-fmin = 50
+fmin = 0
 preemph = 0.97
 top_db = 80
 ref_db = 20
-mulaw.bits = 10
+mulaw.bits = 9
 
 [train]
 batch_size = 64
@@ -75,6 +75,11 @@ prior_length = 11
 alpha = 0.1
 beta = 0.9
 
+[model.tpse]
+input_size = 128 # should match model.encoder.cbhg.rnn_size
+hidden_size = 64
+output_size = 20
+
 [model.gst.refencoder]
 output_channels = [32, 32, 64, 64, 128, 128]
 kernel_size = [3, 3]
@@ -86,4 +91,4 @@ n_mels = 80 # should match preprocess.n_mels
 [model.gst.styletoken]
 embedding_dim = 256 # should match model.encoder.embedding_dim
 heads = 4
-tokens = 20
+tokens = 20 # should match model.tpse.output_size

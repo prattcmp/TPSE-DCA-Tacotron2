@@ -6,11 +6,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.stats import betabinom
 
-from gst import GST
+from gst import GST, TPSE
 
 
 class Tacotron(nn.Module):
-    def __init__(self, encoder, gst, decoder):
+    def __init__(self, encoder, decoder, tpse, gst):
         super().__init__()
         self.input_size = 2 * decoder["input_size"]
         self.attn_rnn_size = decoder["attn_rnn_size"]
@@ -18,8 +18,9 @@ class Tacotron(nn.Module):
         self.n_mels = decoder["n_mels"]
         self.reduction_factor = decoder["reduction_factor"]
 
-        self.encoder = Encoder(**encoder)
         self.gst = GST(**gst)
+        self.encoder = Encoder(**encoder)
+        self.tpse = TPSE(**tpse)
         self.decoder_cell = DecoderCell(**decoder)
 
     @classmethod
@@ -50,11 +51,19 @@ class Tacotron(nn.Module):
 
     def forward(self, x, mels):
         B, N, T = mels.size()
-
-        h = self.encoder(x)
+        
         g = self.gst(mels)  # [N, 256]
         g = g.expand_as(h)
+        
+        h = self.encoder(x)
+        # Prevent back-propagation from tpse into encoder
+        h_det = h.detach().clone()
+        
+        # Add gst to encoder output
         h = h + g
+        
+        g_hat = self.tpse(h_det)
+        g_hat = g_hat.expand_as(g)
         
         alpha = F.one_hot(
             torch.zeros(B, dtype=torch.long, device=x.device), h.size(1)
@@ -90,7 +99,7 @@ class Tacotron(nn.Module):
 
         ys = torch.cat(ys, dim=-1)
         alphas = torch.stack(alphas, dim=2)
-        return ys, alphas
+        return ys, alphas, g_hat, g
 
     def generate(self, x, max_length=10000, stop_threshold=-0.2):
         """

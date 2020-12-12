@@ -131,8 +131,10 @@ def train_model(args):
             optimizer.zero_grad()
 
             with amp.autocast():
-                ys, alphas = tacotron(texts, mels)
-                loss = F.l1_loss(ys, mels)
+                ys, alphas, g_hat, g = tacotron(texts, mels)
+                loss1 = F.l1_loss(ys, mels)
+                loss2 = F.l1_loss(g_hat, g)
+                loss = loss1 + loss2
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)

@@ -3,6 +3,24 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 
+class TPSE(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super().__init__()
+        
+        self.rnn = nn.GRU(input_size, rnn_size, batch_first=True, bidirectional=True)
+        self.fc1 = torch.nn.Linear(input_size, hidden_size)
+        self.fc2 = torch.nn.Linear(hidden_size, output_size)
+        
+    def forward(self, x):
+        x = self.rnn(x)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        x = F.tanh(x)
+        
+        return x
+        
+
 class GST(nn.Module):
 
     def __init__(self, refencoder, styletoken):
