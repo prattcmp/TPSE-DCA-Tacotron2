@@ -78,7 +78,7 @@ beta = 0.9
 [model.tpse]
 input_size = 128 # should match model.encoder.cbhg.rnn_size
 hidden_size = 64
-output_size = 20
+output_size = 32
 
 [model.gst.refencoder]
 output_channels = [32, 32, 64, 64, 128, 128]
@@ -91,4 +91,4 @@ n_mels = 80 # should match preprocess.n_mels
 [model.gst.styletoken]
 embedding_dim = 256 # should match model.encoder.embedding_dim
 heads = 4
-tokens = 20 # should match model.tpse.output_size
+tokens = 20

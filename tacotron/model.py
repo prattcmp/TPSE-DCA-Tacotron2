@@ -116,8 +116,16 @@ class Tacotron(nn.Module):
         Returns:
             Tensor: a log-Mel spectrogram of the synthesized speech.
         """
+        
         h = self.encoder(x)
         B, T, _ = h.size()
+        
+        h_det = h.detach().clone()
+        g_hat = self.tpse(h_det)
+        g_hat = g_hat.expand_as(h)
+        
+        # Add predicted gst to encoder output
+        h = h + g_hat
 
         alpha = F.one_hot(torch.zeros(B, dtype=torch.long, device=x.device), T).float()
         c = torch.zeros(B, self.input_size, device=x.device)
