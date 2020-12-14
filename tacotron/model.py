@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.stats import betabinom
 
-from gst import GST, TPSE
+from .gst import GST, TPSE
 
 
 class Tacotron(nn.Module):
@@ -53,9 +53,9 @@ class Tacotron(nn.Module):
         B, N, T = mels.size()
         
         g = self.gst(mels)  # [N, 256]
-        g = g.expand_as(h)
-        
+
         h = self.encoder(x)
+        g = g.expand_as(h)
         # Prevent back-propagation from tpse into encoder
         h_det = h.detach().clone()
         
@@ -63,6 +63,7 @@ class Tacotron(nn.Module):
         h = h + g
         
         g_hat = self.tpse(h_det)
+
         g_hat = g_hat.expand_as(g)
         
         alpha = F.one_hot(

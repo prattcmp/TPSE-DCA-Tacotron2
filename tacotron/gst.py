@@ -4,20 +4,21 @@ import torch.nn.init as init
 import torch.nn.functional as F
 
 class TPSE(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, batch_size, input_size, rnn_size, hidden_size, output_size):
         super().__init__()
         
-        self.rnn = nn.GRU(input_size, rnn_size, batch_first=True, bidirectional=True)
-        self.fc1 = torch.nn.Linear(input_size, hidden_size)
-        self.fc2 = torch.nn.Linear(hidden_size, output_size)
+        self.rnn = nn.GRU(input_size, rnn_size, batch_first=True)
+        self.fc1 = nn.Linear(batch_size*rnn_size, hidden_size)
         
     def forward(self, x):
-        x = self.rnn(x)
+        self.rnn.flatten_parameters()
+        x, _ = self.rnn(x)
+        x = x.transpose(0, 1)
+        x = x.reshape(x.size(0), -1)
         x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        x = F.tanh(x)
-        
+        x = x.tanh()
+        x = x.repeat(1, 1, 4) # Resize for multi-headed attention 
+
         return x
         
 
@@ -73,7 +74,7 @@ class ReferenceEncoder(nn.Module):
 
         x = x.transpose(1, 2)  # [B, T//2^K, 128, N//2^K]
         B, T = x.size(0), x.size(1)
-        x = x.view(B, T, -1)  # [B, T//2^K, 128*N//2^K] - might need to add contiguous()
+        x = x.reshape(B, T, -1)  # [B, T//2^K, 128*N//2^K]
 
         self.gru.flatten_parameters()
         _, x = self.gru(x)  # out --- [1, N, E//2]
@@ -105,7 +106,7 @@ class StyleTokenLayer(nn.Module):
     def forward(self, x):
         N = x.size(0)
         x = x.unsqueeze(1)  # [N, 1, E//2]
-        keys = F.tanh(self.embed).unsqueeze(0).expand(N, -1, -1)  # [N, token_num, E // num_heads]
+        keys = self.embed.tanh().unsqueeze(0).expand(N, -1, -1)  # [N, token_num, E // num_heads]
         x = self.attention(x, keys)
 
         return x

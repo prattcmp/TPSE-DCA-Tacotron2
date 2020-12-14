@@ -11,7 +11,7 @@ ref_db = 20
 mulaw.bits = 9
 
 [train]
-batch_size = 64
+batch_size = 128
 bucket_size_multiplier = 5
 n_steps = 250000
 checkpoint_interval = 5000
@@ -76,7 +76,9 @@ alpha = 0.1
 beta = 0.9
 
 [model.tpse]
-input_size = 128 # should match model.encoder.cbhg.rnn_size
+batch_size = 128
+input_size = 256 # should match model.encoder.cbhg.rnn_size
+rnn_size = 64
 hidden_size = 64
 output_size = 32
 
