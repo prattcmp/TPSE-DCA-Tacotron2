@@ -165,7 +165,8 @@ def train_model(args):
                 y = ys[index, :, :].detach().cpu().numpy()
                 log_alignment(alpha, y, cfg["preprocess"], writer, global_step)
 
-        writer.add_scalar("loss", average_loss, global_step)
+        writer.add_scalars("losses", {'tacotron': loss1.item(), 'tpse': loss2.item()}, global_step)
+        writer.add_scalar("avg_loss", average_loss, global_step)
         print(f"epoch {epoch} : loss {average_loss:.4f} : {scheduler.get_last_lr()}")
 
 

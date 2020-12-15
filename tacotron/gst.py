@@ -4,20 +4,20 @@ import torch.nn.init as init
 import torch.nn.functional as F
 
 class TPSE(nn.Module):
-    def __init__(self, batch_size, input_size, rnn_size, hidden_size, output_size):
+    def __init__(self, training, batch_size, input_size, rnn_size, hidden_size, output_size):
         super().__init__()
         
         self.rnn = nn.GRU(input_size, rnn_size, batch_first=True)
-        self.fc1 = nn.Linear(batch_size*rnn_size, hidden_size)
+        self.fc1 = nn.Linear(rnn_size, hidden_size)
         
     def forward(self, x):
         self.rnn.flatten_parameters()
-        x, _ = self.rnn(x)
-        x = x.transpose(0, 1)
-        x = x.reshape(x.size(0), -1)
+        _, x = self.rnn(x)
+        x = x.squeeze(0)
         x = self.fc1(x)
         x = x.tanh()
-        x = x.repeat(1, 1, 4) # Resize for multi-headed attention 
+        x = x.repeat(1, 4) # Resize for multi-headed attention 
+        x = x.unsqueeze(1)
 
         return x
         

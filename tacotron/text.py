@@ -1,9 +1,9 @@
 """ adapted from https://github.com/keithito/tacotron """
 
+import os
 import re
 from itertools import islice
 
-import importlib_resources
 
 # fmt: off
 PUNCTUATION = ['!', ',', '.', '?']
@@ -101,8 +101,7 @@ def tokenize(text):
 def load_cmudict():
     """Loads the CMU Pronouncing Dictionary"""
 
-    dict_ref = importlib_resources.files("tacotron").joinpath("cmudict-0.7b.txt")
-    with open(dict_ref, encoding="ISO-8859-1") as file:
+    with open(os.path.join(os.path.dirname(__file__), 'cmudict-0.7b.txt'), encoding="ISO-8859-1") as file:
         cmudict = (line.strip().split("  ") for line in islice(file, 126, 133905))
         cmudict = {
             format_alt_entry(word): pronunciation for word, pronunciation in cmudict

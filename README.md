@@ -78,7 +78,7 @@ cd ./Tacotron
 2. Install requirements:
 
 ```
-pip install -r requirements.txt
+pipenv install
 ```
 
 3. Download and extract the [LJ-Speech dataset](https://keithito.com/LJ-Speech-Dataset/):
@@ -92,7 +92,7 @@ tar -xvjf LJSpeech-1.1.tar.bz2
 5. Extract Mel spectrograms and preprocess audio:
 
 ```
-python preprocess.py path/to/LJSpeech-1.1 datasets/LJSpeech-1.1
+pipenv run python preprocess.py path/to/LJSpeech-1.1 datasets/LJSpeech-1.1
 ```
 
 ```
@@ -111,7 +111,7 @@ optional arguments:
 6. Train the model:
 
 ```
-python train.py ljspeech path/to/LJSpeech-1.1/metadata.csv datasets/LJSpeech-1.1
+pipenv run python train.py ljspeech path/to/LJSpeech-1.1/metadata.csv datasets/LJSpeech-1.1
 ```
 
 ```
