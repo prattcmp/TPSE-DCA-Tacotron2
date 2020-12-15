@@ -16,7 +16,7 @@ bucket_size_multiplier = 5
 n_steps = 250000
 checkpoint_interval = 5000
 n_workers = 8
-clip_grad_norm = 0.05
+clip_grad_norm = 0.01
 
 [train.optimizer]
 lr = 1e-3
