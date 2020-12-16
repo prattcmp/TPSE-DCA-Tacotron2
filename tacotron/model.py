@@ -1,3 +1,4 @@
+import os
 import importlib_resources
 import numpy as np
 import toml
@@ -6,22 +7,46 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.stats import betabinom
 
-from gst import GST, TPSE
+from .gst import GST, TPSE
 
 
 class Tacotron(nn.Module):
-    def __init__(self, encoder, decoder, tpse, gst):
+    def __init__(self, encoder, decoder, tpse, gst, training=True):
         super().__init__()
         self.input_size = 2 * decoder["input_size"]
         self.attn_rnn_size = decoder["attn_rnn_size"]
         self.decoder_rnn_size = decoder["decoder_rnn_size"]
         self.n_mels = decoder["n_mels"]
         self.reduction_factor = decoder["reduction_factor"]
+        tpse["training"] = training
 
         self.gst = GST(**gst)
         self.encoder = Encoder(**encoder)
         self.tpse = TPSE(**tpse)
         self.decoder_cell = DecoderCell(**decoder)
+
+    @classmethod
+    def from_pretrained_file(cls, fi, map_location=None, cfg_path=None):
+        """
+        Loads the Torch serialized object at the given path
+
+        Parameters:
+            fi (string): local path to weights
+            map_location:  a function or a dict specifying how to remap
+                storage locations (see torch.load).
+            cfg_path (Path): path to config file.
+                Defaults to tacotron/config.toml
+        """
+
+        with open(os.path.join(os.path.dirname(__file__), 'config.toml')) as file:
+            cfg = toml.load(file)
+        checkpoint = torch.load(fi, map_location=map_location)
+
+        cfg["model"]["training"] = False
+        model = cls(**cfg["model"])
+        model.load_state_dict(checkpoint["tacotron"])
+        model.eval() 
+        return model
 
     @classmethod
     def from_pretrained(cls, url, map_location=None, cfg_path=None):
@@ -53,9 +78,9 @@ class Tacotron(nn.Module):
         B, N, T = mels.size()
         
         g = self.gst(mels)  # [N, 256]
-        g = g.expand_as(h)
-        
+
         h = self.encoder(x)
+        g = g.expand_as(h)
         # Prevent back-propagation from tpse into encoder
         h_det = h.detach().clone()
         
