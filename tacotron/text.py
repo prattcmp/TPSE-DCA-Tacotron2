@@ -6,7 +6,7 @@ from itertools import islice
 
 
 # fmt: off
-PUNCTUATION = ['!', ',', '.', '?']
+PUNCTUATION = ['!', ',', '.', '?', '"']
 SYMBOLS = [
     '_', '~', ' ', *PUNCTUATION, 'AA', 'AA0', 'AA1', 'AA2', 'AE', 'AE0',
     'AE1', 'AE2', 'AH', 'AH0', 'AH1', 'AH2', 'AO', 'AO0', 'AO1', 'AO2', 'AW',
