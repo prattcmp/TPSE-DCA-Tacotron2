@@ -1,22 +1,26 @@
+import math
+from enum import Enum
 import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 
 class TPSE(nn.Module):
-    def __init__(self, training, batch_size, input_size, rnn_size, hidden_size, output_size):
+    def __init__(self, input_size, rnn_size, hidden_size, output_size):
         super().__init__()
         
         self.rnn = nn.GRU(input_size, rnn_size, batch_first=True)
         self.fc1 = nn.Linear(rnn_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, output_size)
         
     def forward(self, x):
         self.rnn.flatten_parameters()
         _, x = self.rnn(x)
         x = x.squeeze(0)
         x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
         x = x.tanh()
-        x = x.repeat(1, 4) # Resize for multi-headed attention 
         x = x.unsqueeze(1)
 
         return x
@@ -95,21 +99,151 @@ class StyleTokenLayer(nn.Module):
     def __init__(self, embedding_dim, heads, tokens):
 
         super().__init__()
-        self.embed = nn.Parameter(torch.FloatTensor(tokens, embedding_dim // heads))
+        #self.embed = nn.Parameter(torch.FloatTensor(tokens, embedding_dim // heads))
         d_q = embedding_dim // 2
         d_k = embedding_dim // heads
         # self.attention = MultiHeadAttention(heads, d_model, d_q, d_v)
-        self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k, num_units=embedding_dim, num_heads=heads)
+        dim_input = embedding_dim // 2
+        dim_key_query_all = embedding_dim // 8
+        self.attention = CollaborativeAttention(dim_input=dim_input, 
+                                                dim_value_all=embedding_dim, 
+                                                dim_key_query_all=dim_key_query_all,
+                                                num_attention_heads=heads)
+        #self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k, num_units=embedding_dim, num_heads=heads)
 
-        init.normal_(self.embed, mean=0, std=0.5)
+        #init.normal_(self.embed, mean=0, std=0.5)
 
     def forward(self, x):
         N = x.size(0)
         x = x.unsqueeze(1)  # [N, 1, E//2]
-        keys = self.embed.tanh().unsqueeze(0).expand(N, -1, -1)  # [N, token_num, E // num_heads]
-        x = self.attention(x, keys)
+        #keys = self.embed.tanh().unsqueeze(0).expand(N, -1, -1)  # [N, token_num, E // num_heads]
+        x = x.tanh()
+        x = self.attention(x)
 
         return x
+
+class MixingMatrixInit(Enum):
+    CONCATENATE = 1
+    ALL_ONES = 2
+    UNIFORM = 3
+
+
+class CollaborativeAttention(nn.Module):
+    def __init__(
+        self,
+        dim_input: int,
+        dim_value_all: int,
+        dim_key_query_all: int,
+        num_attention_heads: int,
+        mixing_initialization: MixingMatrixInit = MixingMatrixInit.UNIFORM,
+    ):
+        super().__init__()
+
+        if dim_value_all % num_attention_heads != 0:
+            raise ValueError(
+                "Value dimension ({}) should be divisible by number of heads ({})".format(
+                    dim_value_all, num_attention_heads
+                )
+            )
+
+        # save args
+        self.dim_input = dim_input
+        self.dim_value_all = dim_value_all
+        self.dim_key_query_all = dim_key_query_all
+        self.num_attention_heads = num_attention_heads
+        self.mixing_initialization = mixing_initialization
+
+        self.dim_value_per_head = dim_value_all // num_attention_heads
+        self.attention_head_size = (
+            dim_key_query_all / num_attention_heads
+        )  # does not have to be integer
+
+        # intialize parameters
+        self.query = nn.Linear(dim_input, dim_key_query_all, bias=False)
+        self.key = nn.Linear(dim_input, dim_key_query_all, bias=False)
+        self.value = nn.Linear(dim_input, dim_value_all)
+
+        self.mixing = self.init_mixing_matrix()
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+    ):
+        from_sequence = hidden_states
+        to_sequence = hidden_states
+        if encoder_hidden_states is not None:
+            to_sequence = encoder_hidden_states
+            attention_mask = encoder_attention_mask
+
+        query_layer = self.query(from_sequence)
+        key_layer = self.key(to_sequence)
+
+        # point wise multiplication of the mixing coefficient per head with the shared query projection
+        # (batch, from_seq, dim) x (head, dim) -> (batch, head, from_seq, dim)
+        mixed_query = query_layer[..., None, :, :] * self.mixing[..., :, None, :]
+
+        # broadcast the shared key for all the heads
+        # (batch, 1, to_seq, dim)
+        mixed_key = key_layer[..., None, :, :]
+
+        # (batch, head, from_seq, to_seq)
+        attention_scores = torch.matmul(mixed_query, mixed_key.transpose(-1, -2))
+
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        if attention_mask is not None:
+            attention_scores = attention_scores + attention_mask
+
+        # Normalize the attention scores to probabilities.
+        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+
+        # This is actually dropping out entire tokens to attend to, which might
+        # seem a bit unusual, but is taken from the original Transformer paper.
+        # attention_probs = self.dropout(attention_probs)
+
+        # Mask heads if we want to
+        if head_mask is not None:
+            attention_probs = attention_probs * head_mask
+
+        value_layer = self.value(to_sequence)
+        value_layer = self.transpose_for_scores(value_layer)
+        context_layer = torch.matmul(attention_probs, value_layer)
+
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.dim_value_all,)
+        context_layer = context_layer.view(*new_context_layer_shape)
+
+        return context_layer
+
+    def transpose_for_scores(self, x):
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, -1)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3)
+
+    def init_mixing_matrix(self, scale=0.2):
+        mixing = torch.zeros(self.num_attention_heads, self.dim_key_query_all)
+
+        if self.mixing_initialization is MixingMatrixInit.CONCATENATE:
+            # last head will be smaller if not equally divisible
+            dim_head = int(math.ceil(self.dim_key_query_all / self.num_attention_heads))
+            for i in range(self.num_attention_heads):
+                mixing[i, i * dim_head : (i + 1) * dim_head] = 1.0
+
+        elif self.mixing_initialization is MixingMatrixInit.ALL_ONES:
+            mixing.one_()
+        elif self.mixing_initialization is MixingMatrixInit.UNIFORM:
+            mixing.normal_(std=scale)
+        else:
+            raise ValueError(
+                "Unknown mixing matrix initialization: {}".format(
+                    self.mixing_initialization
+                )
+            )
+
+        return nn.Parameter(mixing)
 
 
 class MultiHeadAttention(nn.Module):

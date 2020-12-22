@@ -11,14 +11,13 @@ from .gst import GST, TPSE
 
 
 class Tacotron(nn.Module):
-    def __init__(self, encoder, decoder, tpse, gst, training=True):
+    def __init__(self, encoder, decoder, tpse, gst):
         super().__init__()
         self.input_size = 2 * decoder["input_size"]
         self.attn_rnn_size = decoder["attn_rnn_size"]
         self.decoder_rnn_size = decoder["decoder_rnn_size"]
         self.n_mels = decoder["n_mels"]
         self.reduction_factor = decoder["reduction_factor"]
-        tpse["training"] = training
 
         self.gst = GST(**gst)
         self.encoder = Encoder(**encoder)
@@ -42,7 +41,6 @@ class Tacotron(nn.Module):
             cfg = toml.load(file)
         checkpoint = torch.load(fi, map_location=map_location)
 
-        cfg["model"]["training"] = False
         model = cls(**cfg["model"])
         model.load_state_dict(checkpoint["tacotron"])
         model.eval() 
