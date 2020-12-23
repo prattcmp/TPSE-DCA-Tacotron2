@@ -78,8 +78,6 @@ class BucketBatchSampler(samplers.BatchSampler):
 class TTSDataset(Dataset):
     def __init__(self, root, text_path):
         self.root = Path(root)
-        # Can replace with AlbertTokenizerFast for performance improvement
-        self.tokenizer = AlbertTokenizer.from_pretrained('albert-base-v2')
 
         with open(self.root / "train.json") as file:
             metadata = json.load(file)
@@ -112,20 +110,21 @@ class TTSDataset(Dataset):
         mel = np.load(path.with_suffix(".mel.npy"))
 
         id_text = text_to_id(self.text[path.stem], self.cmudict)
-        token_text = self.tokenizer(self.text[path.stem], return_tensors="pt")
+        str_text = self.text[path.stem]
 
         return (
             torch.Tensor(mel).transpose_(0, 1),
             torch.LongTensor(id_text),
             index == self.index_longest_mel,
-            torch.LongTensor(token_text),
+            str_text
         )
 
 
 def pad_collate(batch, reduction_factor=2):
-    mels, texts, attn_flag = zip(*batch)
+    mels, texts, attn_flag, str_texts = zip(*batch)
     mels = list(mels)
     texts = list(texts)
+    str_texts = list(str_texts)
 
     # if len(mels[0]) is not a multiple of reduction_factor pad
     # note: mels[0] is the longest mel in the batch so when we call pad_sequence
@@ -138,7 +137,11 @@ def pad_collate(batch, reduction_factor=2):
 
     mels = pad_sequence(mels, batch_first=True)
     texts = pad_sequence(texts, batch_first=True, padding_value=symbol_to_id["_"])
+    # Can replace with AlbertTokenizerFast for performance improvement
+    tokenizer = AlbertTokenizer.from_pretrained('albert-base-v2')
+    tokens = tokenizer(str_texts, return_tensors="pt", padding=True)
+    bert_input_ids, bert_token_type_ids, bert_attention_mask = tokens['input_ids'], tokens['token_type_ids'], tokens['attention_mask']
 
     attn_flag = [i for i, flag in enumerate(attn_flag) if flag]
 
-    return mels.transpose_(1, 2), texts, mel_lengths, text_lengths, attn_flag
+    return mels.transpose_(1, 2), texts, mel_lengths, text_lengths, attn_flag, bert_input_ids, bert_token_type_ids, bert_attention_mask 

@@ -123,15 +123,16 @@ def train_model(args):
     for epoch in range(start_epoch, n_epochs + 1):
         average_loss = 0
 
-        for i, (mels, texts, mel_lengths, text_lengths, attn_flag) in enumerate(
+        for i, (mels, texts, mel_lengths, text_lengths, attn_flag, bert_input_ids, bert_token_type_ids, bert_attention_mask) in enumerate(
             tqdm(loader), 1
         ):
             mels, texts = mels.cuda(), texts.cuda()
+            bert_input_ids, bert_token_type_ids, bert_attention_mask = bert_input_ids.cuda(), bert_token_type_ids.cuda(), bert_attention_mask.cuda()
 
             optimizer.zero_grad()
 
             with amp.autocast():
-                ys, alphas, g_hat, g = tacotron(texts, mels)
+                ys, alphas, g_hat, g = tacotron(texts, mels, bert_input_ids, bert_token_type_ids, bert_attention_mask)
                 loss1 = F.l1_loss(ys, mels)
                 loss2 = F.l1_loss(g_hat, g)
                 loss = loss1 + loss2

@@ -72,12 +72,12 @@ class Tacotron(nn.Module):
         model.eval()
         return model
 
-    def forward(self, x, mels, tokens):
+    def forward(self, x, mels, bert_input_ids, bert_token_type_ids, bert_attention_mask):
         '''
         Parameters:
             x: id version of text strings
             mels: mel spectrogram files
-            text: readable string version of text strings
+            bert_: inputs for albert model
         '''
         B, N, T = mels.size()
         
@@ -91,7 +91,7 @@ class Tacotron(nn.Module):
         # Add gst to encoder output
         h = h + g
         
-        g_hat = self.tpse(h_det, tokens)
+        g_hat = self.tpse(h_det, bert_input_ids, bert_token_type_ids, bert_attention_mask) 
         g_hat = g_hat.expand_as(g)
         
         alpha = F.one_hot(

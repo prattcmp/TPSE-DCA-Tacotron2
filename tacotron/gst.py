@@ -9,25 +9,27 @@ import torch.nn.functional as F
 class TPSE(nn.Module):
     def __init__(self, input_size, rnn_size, hidden_size, output_size):
         super().__init__()
+        self.input_size = input_size
         
+        self.albert = AlbertModel.from_pretrained('albert-base-v2')
         self.rnn = nn.GRU(input_size, rnn_size, batch_first=True)
+        # 768 = ALBERT base hidden size
+        self.albert_rnn = nn.GRU(768, rnn_size, batch_first=True)
         self.fc1 = nn.Linear(rnn_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_size)
-        self.albert = AlbertModel.from_pretrained('albert-base-v2')
+
         
-    def forward(self, x, tokens):
-        y = self.albert(**tokens).last_hidden_state
-        print(y)
-        print(y.size())
+    def forward(self, x, bert_input_ids, bert_token_type_ids, bert_attention_mask):
+        y = self.albert(input_ids=bert_input_ids, attention_mask=bert_attention_mask, token_type_ids=bert_token_type_ids).last_hidden_state
         
-        y = F.interpolate(y, size=input_size)
-        print(y.size(), x.size())
-        x = x + y
 
         # TODO: Add collaborative attention
 
         self.rnn.flatten_parameters()
+        self.albert_rnn.flatten_parameters()
         _, x = self.rnn(x)
+        _, y = self.albert_rnn(y)
+        x = x + y
         x = x.squeeze(0)
         x = self.fc1(x)
         x = F.relu(x)
