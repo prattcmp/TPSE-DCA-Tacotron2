@@ -1,5 +1,6 @@
 import math
 from enum import Enum
+from transformers import AlbertModel
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -12,8 +13,19 @@ class TPSE(nn.Module):
         self.rnn = nn.GRU(input_size, rnn_size, batch_first=True)
         self.fc1 = nn.Linear(rnn_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_size)
+        self.albert = AlbertModel.from_pretrained('albert-base-v2')
         
-    def forward(self, x):
+    def forward(self, x, tokens):
+        y = self.albert(**tokens).last_hidden_state
+        print(y)
+        print(y.size())
+        
+        y = F.interpolate(y, size=input_size)
+        print(y.size(), x.size())
+        x = x + y
+
+        # TODO: Add collaborative attention
+
         self.rnn.flatten_parameters()
         _, x = self.rnn(x)
         x = x.squeeze(0)

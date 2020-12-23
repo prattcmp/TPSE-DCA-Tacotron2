@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.utils.data.sampler as samplers
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
+from transformers import AlbertTokenizer
 
 from .text import load_cmudict, symbol_to_id, text_to_id
 
@@ -77,6 +78,8 @@ class BucketBatchSampler(samplers.BatchSampler):
 class TTSDataset(Dataset):
     def __init__(self, root, text_path):
         self.root = Path(root)
+        # Can replace with AlbertTokenizerFast for performance improvement
+        self.tokenizer = AlbertTokenizer.from_pretrained('albert-base-v2')
 
         with open(self.root / "train.json") as file:
             metadata = json.load(file)
@@ -108,12 +111,14 @@ class TTSDataset(Dataset):
 
         mel = np.load(path.with_suffix(".mel.npy"))
 
-        text = text_to_id(self.text[path.stem], self.cmudict)
+        id_text = text_to_id(self.text[path.stem], self.cmudict)
+        token_text = self.tokenizer(self.text[path.stem], return_tensors="pt")
 
         return (
             torch.Tensor(mel).transpose_(0, 1),
-            torch.LongTensor(text),
+            torch.LongTensor(id_text),
             index == self.index_longest_mel,
+            torch.LongTensor(token_text),
         )
 
 
