@@ -11,21 +11,25 @@ from .gst import GST, TPSE
 
 
 class Tacotron(nn.Module):
-    def __init__(self, encoder, decoder, tpse, gst):
+    def __init__(self, encoder, decoder, tpse, gst, pretrained_model=None, decoder_only=False):
         super().__init__()
         self.input_size = 2 * decoder["input_size"]
         self.attn_rnn_size = decoder["attn_rnn_size"]
         self.decoder_rnn_size = decoder["decoder_rnn_size"]
         self.n_mels = decoder["n_mels"]
         self.reduction_factor = decoder["reduction_factor"]
+        # Assume teacher forcing if no pretrained teacher-forcing model is supplied
+        self.teacher_forcing = True if pretrained_model is None else False
 
-        self.gst = GST(**gst)
-        self.encoder = Encoder(**encoder)
-        self.tpse = TPSE(**tpse)
+        if not decoder_only:
+            self.gst = GST(**gst)
+            self.encoder = Encoder(**encoder)
+            self.tpse = TPSE(**tpse)
+        self.pretrained_model = pretrained_model
         self.decoder_cell = DecoderCell(**decoder)
 
     @classmethod
-    def from_pretrained_file(cls, fi, map_location=None, cfg_path=None):
+    def from_pretrained_file(cls, fi, map_location=None, cfg_path=None, decoder_only=False):
         """
         Loads the Torch serialized object at the given path
 
@@ -41,8 +45,14 @@ class Tacotron(nn.Module):
             cfg = toml.load(file)
         checkpoint = torch.load(fi, map_location=map_location)
 
-        model = cls(**cfg["model"])
-        model.load_state_dict(checkpoint["tacotron"])
+        model = cls(**cfg["model"], decoder_only=decoder_only)
+
+        if decoder_only:
+            state_dict = {k: v for (k, v) in checkpoint["tacotron"].items() if k in model.state_dict()}
+            checkpoint.clear()
+            model.load_state_dict(state_dict)
+        else:
+            model.load_state_dict(checkpoint["tacotron"])
         model.eval() 
         return model
 
@@ -110,8 +120,54 @@ class Tacotron(nn.Module):
 
         go_frame = torch.zeros(B, N, device=x.device)
 
-        ys, alphas = [], []
         mels = mels.unbind(-1)
+        if not self.teacher_forcing:
+            # Run teacher-forcing decoder to compare against student model
+            tf_ys = self.pretrained_model.decoder_forward(h, mels, B, N, T, x.device)
+        ys, alphas = [], []
+        for t in range(0, T, self.reduction_factor):
+            if self.teacher_forcing:
+                y = mels[t - 1] if t > 0 else go_frame
+            else:
+                y = ys[-1][:, :, -1] if t > 0 else go_frame
+            y, alpha, c, attn_hx, rnn1_hx, rnn2_hx = self.decoder_cell(
+                h, y, alpha, c, attn_hx, rnn1_hx, rnn2_hx
+            )
+
+            ys.append(y)
+            alphas.append(alpha)
+
+        ys = torch.cat(ys, dim=-1)
+        alphas = torch.stack(alphas, dim=2)
+        if self.teacher_forcing:
+            return ys, alphas, g_hat, g
+        else:
+            return ys, alphas, g_hat, g, tf_ys
+
+    def decoder_forward(self, h, mels, B, N, T, device):
+        alpha = F.one_hot(
+            torch.zeros(B, dtype=torch.long, device=device), h.size(1)
+        ).float()
+        c = torch.zeros(B, self.input_size, device=device)
+
+        attn_hx = (
+            torch.zeros(B, self.attn_rnn_size, device=device),
+            torch.zeros(B, self.attn_rnn_size, device=device),
+        )
+
+        rnn1_hx = (
+            torch.zeros(B, self.decoder_rnn_size, device=device),
+            torch.zeros(B, self.decoder_rnn_size, device=device),
+        )
+
+        rnn2_hx = (
+            torch.zeros(B, self.decoder_rnn_size, device=device),
+            torch.zeros(B, self.decoder_rnn_size, device=device),
+        )
+
+        go_frame = torch.zeros(B, N, device=device)
+
+        ys, alphas = [], []
         for t in range(0, T, self.reduction_factor):
             y = mels[t - 1] if t > 0 else go_frame
             y, alpha, c, attn_hx, rnn1_hx, rnn2_hx = self.decoder_cell(
@@ -121,8 +177,7 @@ class Tacotron(nn.Module):
             alphas.append(alpha)
 
         ys = torch.cat(ys, dim=-1)
-        alphas = torch.stack(alphas, dim=2)
-        return ys, alphas, g_hat, g
+        return ys
 
     def generate(self, x, max_length=10000, stop_threshold=-0.2):
         """

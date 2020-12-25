@@ -15,6 +15,7 @@ import torch.utils.data.sampler as samplers
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import torch.autograd.profiler as profiler
 from tqdm import tqdm
 
 from tacotron import BucketBatchSampler, Tacotron, TTSDataset, pad_collate
@@ -22,7 +23,7 @@ from tacotron import BucketBatchSampler, Tacotron, TTSDataset, pad_collate
 matplotlib.use("Agg")
 
 
-def save_checkpoint(tacotron, optimizer, scaler, scheduler, step, checkpoint_dir):
+def save_checkpoint(tacotron, optimizer, scaler, scheduler, step, checkpoint_dir, teacher_forcing):
     state = {
         "tacotron": tacotron.state_dict(),
         "optimizer": optimizer.state_dict(),
@@ -31,7 +32,10 @@ def save_checkpoint(tacotron, optimizer, scaler, scheduler, step, checkpoint_dir
         "step": step,
     }
     checkpoint_dir.mkdir(exist_ok=True, parents=True)
-    checkpoint_path = checkpoint_dir / f"model-{step}.pt"
+    if teacher_forcing:
+        checkpoint_path = checkpoint_dir / f"tf-model-{step}.pt"
+    else:
+        checkpoint_path = checkpoint_dir / f"model-{step}.pt"
     torch.save(state, checkpoint_path)
     print(f"Saved checkpoint: {checkpoint_path.stem}")
 
@@ -74,7 +78,12 @@ def train_model(args):
     checkpoint_dir = Path(args.checkpoint_dir)
     writer = SummaryWriter(tensorboard_path)
 
-    tacotron = Tacotron(**cfg["model"]).cuda()
+    if args.tf_model is not None:
+        assert len(args.tf_model) > 0, "You must supply a path to the pre-trained teacher-forcing model."
+        tf_tacotron = Tacotron.from_pretrained_file(args.tf_model, decoder_only=True)
+        tacotron = Tacotron(**cfg["model"], pretrained_model=tf_tacotron).cuda()
+    else:
+        tacotron = Tacotron(**cfg["model"]).cuda()
     optimizer = optim.Adam(tacotron.parameters(), lr=cfg["train"]["optimizer"]["lr"])
     scaler = amp.GradScaler()
     scheduler = optim.lr_scheduler.MultiStepLR(
@@ -131,10 +140,12 @@ def train_model(args):
             optimizer.zero_grad()
 
             with amp.autocast():
-                ys, alphas, g_hat, g = tacotron(texts, mels)
+                ys, alphas, g_hat, g, ft_ys = tacotron(texts, mels)
                 loss1 = F.l1_loss(ys, mels)
                 loss2 = F.l1_loss(g_hat, g)
-                loss = loss1 + loss2
+                loss3 = F.l1_loss(ys, ft_ys)
+                loss = loss1 + loss2 + loss3
+
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
@@ -155,6 +166,7 @@ def train_model(args):
                     scheduler=scheduler,
                     step=global_step,
                     checkpoint_dir=checkpoint_dir,
+                    teacher_forcing= False if args.tf_model is not None else True
                 )
 
             if attn_flag:
@@ -165,7 +177,7 @@ def train_model(args):
                 y = ys[index, :, :].detach().cpu().numpy()
                 log_alignment(alpha, y, cfg["preprocess"], writer, global_step)
 
-        writer.add_scalars("losses", {'tacotron': loss1.item(), 'tpse': loss2.item()}, global_step)
+        writer.add_scalars("losses", {'tacotron': loss1.item(), 'tpse': loss2.item(), 'teacherstudent': loss3.item()}, global_step)
         writer.add_scalar("avg_loss", average_loss, global_step)
         print(f"epoch {epoch} : loss {average_loss:.4f} : {scheduler.get_last_lr()}")
 
@@ -189,6 +201,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--resume",
         help="Path to the checkpoint to resume from",
+    )
+    parser.add_argument(
+        "--tf_model",
+        help="Path to pretrained teacher model (uses student mode)",
     )
     args = parser.parse_args()
     train_model(args)

@@ -11,7 +11,7 @@ ref_db = 20
 mulaw.bits = 9
 
 [train]
-batch_size = 64
+batch_size = 32
 bucket_size_multiplier = 5
 n_steps = 250000
 checkpoint_interval = 2500
