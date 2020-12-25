@@ -130,7 +130,7 @@ class Tacotron(nn.Module):
         alphas = torch.stack(alphas, dim=2)
         return ys, alphas, g_hat, g
 
-    def generate(self, x, max_length=10000, stop_threshold=-0.2):
+    def generate(self, x, bert_input_ids, bert_token_type_ids, bert_attention_mask, max_length=10000, stop_threshold=-0.2):
         """
         Generates a log-Mel spectrogram from text.
 
@@ -150,7 +150,7 @@ class Tacotron(nn.Module):
         B, T, _ = h.size()
         
         h_det = h.detach().clone()
-        g_hat = self.tpse(h_det)
+        g_hat = self.tpse(h_det, bert_input_ids, bert_token_type_ids, bert_attention_mask) 
         g_hat = g_hat.expand_as(h)
         
         # Add predicted gst to encoder output
